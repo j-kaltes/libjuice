@@ -162,6 +162,14 @@ int ice_parse_candidate_sdp(const char *line, ice_candidate_t *candidate) {
 	return ICE_PARSE_ERROR;
 }
 
+int ice_reset_local_description(ice_description_t *description) {
+	memset(description->candidates,'\0',ICE_MAX_CANDIDATES_COUNT*sizeof(description->candidates[0]));
+	description->ice_lite = false;
+	description->candidates_count = 0;
+	description->finished = false;
+	JLOG_DEBUG("Reset local description: ufrag=\"%s\", pwd=\"%s\"", description->ice_ufrag, description->ice_pwd);
+	return 0;
+    }
 int ice_create_local_description(ice_description_t *description) {
 	memset(description, 0, sizeof(*description));
 	juice_random_str64(description->ice_ufrag, 4 + 1);

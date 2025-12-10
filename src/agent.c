@@ -153,6 +153,33 @@ error:
 	return NULL;
 }
 
+extern int ice_reset_local_description(ice_description_t *description);
+
+void resetAgent(juice_agent_t *agent) {
+   if(agent->resolver_thread_started) {
+      JLOG_VERBOSE("resetAgent: Waiting for resolver thread");
+      thread_join(agent->resolver_thread, NULL);
+      }
+
+   if(agent->conn_impl) {
+       conn_destroy(agent);
+       agent->conn_impl = NULL;
+       }
+
+   JLOG_VERBOSE("resetAgent(%p)",agent);
+   const int remotepos=offsetof(juice_agent_t,remote);
+   const int clearsize=offsetof(juice_agent_t,ice_tiebreaker)-remotepos;
+   memset(((char *)agent)+remotepos, 0, clearsize);
+
+   const int pacpos=offsetof(juice_agent_t,pac_timestamp) ;
+   memset(((char *)agent)+pacpos, 0, sizeof(juice_agent_t)-pacpos);
+   agent->state = JUICE_STATE_DISCONNECTED;
+   agent->mode = AGENT_MODE_UNKNOWN;
+   agent->selected_entry = NULL;
+   ice_reset_local_description(&agent->local);
+   agent->conn_index = -1;
+   }
+
 void agent_destroy(juice_agent_t *agent) {
 	JLOG_DEBUG("Destroying agent");
 
@@ -900,6 +927,9 @@ int agent_conn_tcp_state(juice_agent_t *agent, const addr_record_t *dst, tcp_sta
 	return -1;
 }
 
+static bool pair_good_enough( struct ice_candidate_pair *pair) {
+    return pair->local->type!=ICE_CANDIDATE_TYPE_RELAYED && pair->remote->type!=ICE_CANDIDATE_TYPE_RELAYED; 
+    }
 int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 	JLOG_VERBOSE("Bookkeeping...");
 
@@ -1070,12 +1100,13 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 			// If more than one candidate pair is nominated by the controlling agent, and if the
 			// controlled agent accepts multiple nominations requests, the agents MUST produce the
 			// selected pairs and use the pairs with the highest priority.
-			if (!nominated_pair) {
-				nominated_pair = pair;
-				selected_pair = pair;
-			}
+
+			if (!nominated_pair||pair->priority>nominated_pair->priority) {
+				 nominated_pair = pair;
+				 selected_pair = pair;
+				 }
 		} else if (pair->state == ICE_CANDIDATE_PAIR_STATE_SUCCEEDED) {
-			if (!selected_pair)
+			if (!selected_pair||pair->priority>selected_pair->priority) 
 				selected_pair = pair;
 		} else if (pair->state == ICE_CANDIDATE_PAIR_STATE_PENDING) {
 			if (agent->mode == AGENT_MODE_CONTROLLING && selected_pair) {
@@ -1191,7 +1222,7 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 
 			if (agent->mode == AGENT_MODE_CONTROLLING && !selected_pair->nomination_requested) {
 				if (pending_count == 0 ||
-				    (agent->nomination_timestamp && now >= agent->nomination_timestamp)) {
+				    (agent->nomination_timestamp && now >= agent->nomination_timestamp&&pair_good_enough(selected_pair))) {
 					// Nominate selected
 					JLOG_DEBUG("Requesting pair nomination (controlling)");
 					selected_pair->nomination_requested = true;

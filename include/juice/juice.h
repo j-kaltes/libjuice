@@ -120,6 +120,7 @@ typedef struct juice_config {
 
 JUICE_EXPORT juice_agent_t *juice_create(const juice_config_t *config);
 JUICE_EXPORT void juice_destroy(juice_agent_t *agent);
+JUICE_EXPORT void resetAgent(juice_agent_t *agent);
 
 JUICE_EXPORT int juice_gather_candidates(juice_agent_t *agent);
 JUICE_EXPORT int juice_get_local_description(juice_agent_t *agent, char *buffer, size_t size);
@@ -133,6 +134,8 @@ JUICE_EXPORT juice_state_t juice_get_state(juice_agent_t *agent);
 JUICE_EXPORT int juice_get_selected_candidates(juice_agent_t *agent, char *local, size_t local_size,
                                                char *remote, size_t remote_size);
 JUICE_EXPORT int juice_get_selected_addresses(juice_agent_t *agent, char *local, size_t local_size,
+                                              char *remote, size_t remote_size);
+JUICE_EXPORT int juice_get_selected_addresses_inc_type(juice_agent_t *agent, char *local, size_t local_size,
                                               char *remote, size_t remote_size);
 JUICE_EXPORT int juice_set_local_ice_attributes(juice_agent_t *agent, const char *ufrag, const char *pwd);
 JUICE_EXPORT const char *juice_state_to_string(juice_state_t state);

@@ -122,6 +122,64 @@ JUICE_EXPORT int juice_get_selected_candidates(juice_agent_t *agent, char *local
 	return JUICE_ERR_SUCCESS;
 }
 
+static     int addstring(char *buf,int maxlen,const char *add,int len) {
+        int addlen=len<maxlen?maxlen:len;
+        memcpy(buf,add,addlen);
+        return addlen-1;
+        };
+static int addtype(char *buf,int maxlen,enum ice_candidate_type t) {
+    switch(t) {
+        case ICE_CANDIDATE_TYPE_HOST: {
+            char type[]=" Host";
+            return addstring(buf,maxlen,type,sizeof(type));
+            }
+            break;
+        case ICE_CANDIDATE_TYPE_PEER_REFLEXIVE: {
+            char type[]=" Peer Reflexive";
+            return addstring(buf,maxlen,type,sizeof(type));
+            }
+            break;
+        case ICE_CANDIDATE_TYPE_SERVER_REFLEXIVE: {
+            char type[]=" Server Reflexive";
+            return addstring(buf,maxlen,type,sizeof(type));
+            }
+            break;
+        case ICE_CANDIDATE_TYPE_RELAYED: {
+            char type[]=" Relay";
+            return addstring(buf,maxlen,type,sizeof(type));
+            }
+            break;
+        default: {
+            char type[]=" Unknown";
+            return addstring(buf,maxlen,type,sizeof(type));
+            }
+          };
+    }
+JUICE_EXPORT int juice_get_selected_addresses_inc_type(juice_agent_t *agent, char *local, size_t local_size,
+                                              char *remote, size_t remote_size) {
+	if (!agent || (!local && local_size) || (!remote && remote_size))
+		return JUICE_ERR_INVALID;
+
+	ice_candidate_t local_cand, remote_cand;
+	if (agent_get_selected_candidate_pair(agent, &local_cand, &remote_cand))
+		return JUICE_ERR_NOT_AVAIL;
+    if(local_size)  {
+        int len;
+        if((len=addr_record_to_string(&local_cand.resolved, local, local_size)) < 0)
+		    return JUICE_ERR_FAILED;
+        addtype(local+len,local_size-1,local_cand.type);
+
+        }
+
+	if(remote_size) {
+        int len;
+        if((len=addr_record_to_string(&remote_cand.resolved, remote, remote_size)) < 0) 
+            return JUICE_ERR_FAILED;
+        addtype(remote+len,remote_size-len,remote_cand.type);
+        }
+
+	return JUICE_ERR_SUCCESS;
+}
 JUICE_EXPORT int juice_get_selected_addresses(juice_agent_t *agent, char *local, size_t local_size,
                                               char *remote, size_t remote_size) {
 	if (!agent || (!local && local_size) || (!remote && remote_size))
