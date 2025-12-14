@@ -68,7 +68,6 @@ void juice_log_write(juice_log_level_t level, const char *file, int line, const 
 	if (!juice_log_is_enabled(level))
 		return;
 
-	mutex_lock(&log_mutex);
 
 #if !RELEASE
 	const char *filename = file + strlen(file);
@@ -99,6 +98,7 @@ void juice_log_write(juice_log_level_t level, const char *file, int line, const 
 		log_cb(level, message);
 
 	} else {
+    pthread_mutex_lock(&log_mutex);
 		time_t t = time(NULL);
 		struct tm lt;
 		char buffer[16];
@@ -124,10 +124,10 @@ void juice_log_write(juice_log_level_t level, const char *file, int line, const 
 
 		fprintf(stdout, "\n");
 		fflush(stdout);
+    pthread_mutex_unlock(&log_mutex);
 	}
 
 #if !RELEASE
 __exit:
 #endif
-	mutex_unlock(&log_mutex);
 }

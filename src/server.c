@@ -369,7 +369,7 @@ void server_run(juice_server_t *server) {
 			}
 		}
 
-		JLOG_VERBOSE("Entering poll for %d ms", (int)timediff);
+		JLOG_VERBOSE("server: Entering poll for %d ms", (int)timediff);
 		mutex_unlock(&server->mutex);
 		int ret = poll(pfd, nfd, (int)timediff);
 		mutex_lock(&server->mutex);

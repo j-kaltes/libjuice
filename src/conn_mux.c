@@ -526,7 +526,7 @@ int conn_mux_run(conn_registry_t *registry) {
 		if (timediff < 0)
 			timediff = 0;
 
-		JLOG_VERBOSE("Entering poll for %d ms", (int)timediff);
+		JLOG_VERBOSE("conn_mux_run: Entering poll for %d ms", (int)timediff);
 		int ret = poll(pfd, 1, (int)timediff);
 		JLOG_VERBOSE("Leaving poll");
 		if (ret < 0) {

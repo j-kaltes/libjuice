@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stddef.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -38,6 +39,35 @@
 #define BUFFER_SIZE 4096
 #define DEFAULT_MAX_RECORDS_COUNT 8
 
+#ifdef NOLOG
+#define log_pair(...)
+#else
+extern int addtype(char *buf,int maxlen,enum ice_candidate_type t);
+void log_pair(const char *message, const struct ice_candidate_pair *pair) {
+      const char *lname=NULL;
+      const char *lservice=NULL;
+      const char *rname=NULL;
+      const char *rservice=NULL;
+      const int maxbuf=20;
+      char ltype[maxbuf];
+      char rtype[maxbuf];
+      ltype[0]=0;
+      rtype[0]=0;
+      if(pair) {
+          if(pair->local) {   
+              lname=pair->local->hostname;
+              lservice=pair->local->service;
+             addtype(ltype,maxbuf,pair->local->type);
+              }
+          if(pair->remote) {   
+              rname=pair->remote->hostname;
+              rservice=pair->remote->service;
+             addtype(rtype,maxbuf,pair->remote->type);
+              }
+          }
+    JLOG_DEBUG("%s local=%s:%s%s remote=%s:%s%s",message,lname?lname:"",lservice?lservice:"",ltype,rname?rname:"",rservice?rservice:"",rtype);
+    }
+#endif
 static char *alloc_string_copy(const char *orig, bool *alloc_failed) {
 	if (!orig)
 		return NULL;
@@ -59,7 +89,7 @@ static int copy_turn_server(juice_turn_server_t *dst, const juice_turn_server_t 
 	dst->username = alloc_string_copy(src->username, &alloc_failed);
 	dst->password = alloc_string_copy(src->password, &alloc_failed);
 	dst->port = src->port;
-
+    JLOG_DEBUG("copy_turn_server dst=%p", dst);
 	if (alloc_failed) {
 		JLOG_FATAL("Memory allocation for TURN server configuration copy failed");
 		free((void *)dst->host);
@@ -75,7 +105,6 @@ static int copy_turn_server(juice_turn_server_t *dst, const juice_turn_server_t 
 }
 
 juice_agent_t *agent_create(const juice_config_t *config) {
-	JLOG_VERBOSE("Creating agent");
 
 #ifdef _WIN32
 	WSADATA wsaData;
@@ -86,6 +115,7 @@ juice_agent_t *agent_create(const juice_config_t *config) {
 #endif
 
 	juice_agent_t *agent = calloc(1, sizeof(juice_agent_t));
+	JLOG_VERBOSE("Creating agent=%p",agent);
 	if (!agent) {
 		JLOG_FATAL("Memory allocation for agent failed");
 		return NULL;
@@ -156,32 +186,35 @@ error:
 extern int ice_reset_local_description(ice_description_t *description);
 
 void resetAgent(juice_agent_t *agent) {
-   if(agent->resolver_thread_started) {
-      JLOG_VERBOSE("resetAgent: Waiting for resolver thread");
-      thread_join(agent->resolver_thread, NULL);
-      }
+	if(agent->resolver_thread_started) {
+		JLOG_VERBOSE("resetAgent: Waiting for resolver thread");
+		thread_join(agent->resolver_thread, NULL);
+            }
 
-   if(agent->conn_impl) {
-       conn_destroy(agent);
-       agent->conn_impl = NULL;
-       }
+	if(agent->conn_impl) {
+	    conn_destroy(agent);
+	    agent->conn_impl = NULL;
+	    }
 
-   JLOG_VERBOSE("resetAgent(%p)",agent);
-   const int remotepos=offsetof(juice_agent_t,remote);
-   const int clearsize=offsetof(juice_agent_t,ice_tiebreaker)-remotepos;
-   memset(((char *)agent)+remotepos, 0, clearsize);
+	JLOG_VERBOSE("Reset agent=%p",agent);
+        const int remotepos=offsetof(juice_agent_t,remote);
+  	const int clearsize=offsetof(juice_agent_t,ice_tiebreaker)-remotepos;
+	memset(((char *)agent)+remotepos, 0, clearsize);
 
-   const int pacpos=offsetof(juice_agent_t,pac_timestamp) ;
-   memset(((char *)agent)+pacpos, 0, sizeof(juice_agent_t)-pacpos);
-   agent->state = JUICE_STATE_DISCONNECTED;
-   agent->mode = AGENT_MODE_UNKNOWN;
-   agent->selected_entry = NULL;
-   ice_reset_local_description(&agent->local);
-   agent->conn_index = -1;
-   }
+        const int pacpos=offsetof(juice_agent_t,pac_timestamp) ;
+	memset(((char *)agent)+pacpos, 0, sizeof(juice_agent_t)-pacpos);
+
+
+
+	agent->state = JUICE_STATE_DISCONNECTED;
+	agent->mode = AGENT_MODE_UNKNOWN;
+	agent->selected_entry = NULL;
+	ice_reset_local_description(&agent->local);
+	agent->conn_index = -1;
+    }
 
 void agent_destroy(juice_agent_t *agent) {
-	JLOG_DEBUG("Destroying agent");
+	JLOG_DEBUG("Destroying agent %p",agent);
 
 	if (agent->resolver_thread_started) {
 		JLOG_VERBOSE("Waiting for resolver thread");
@@ -205,6 +238,8 @@ void agent_destroy(juice_agent_t *agent) {
 	free((void *)agent->config.stun_server_host);
 	for (int i = 0; i < agent->config.turn_servers_count; ++i) {
 		juice_turn_server_t *turn_server = agent->config.turn_servers + i;
+	    JLOG_VERBOSE("Destroyed turn_server=%p",turn_server);
+
 		free((void *)turn_server->host);
 		free((void *)turn_server->username);
 		free((void *)turn_server->password);
@@ -387,6 +422,7 @@ int agent_resolve_servers(juice_agent_t *agent) {
 			if (!turn_server->port)
 				turn_server->port = 3478; // default TURN port
 
+            JLOG_DEBUG("agent_resolve_servers agent=%p turn_server=%p",agent,turn_server);
 			char hostname[256];
 			char service[8];
 			snprintf(hostname, 256, "%s", turn_server->host);
@@ -429,12 +465,12 @@ int agent_resolve_servers(juice_agent_t *agent) {
 						}
 					}
 					if (is_duplicate) {
-						JLOG_INFO("Duplicate TURN server, ignoring");
+						JLOG_INFO("Duplicate TURN server %s, ignoring",turn_server->host);
 						continue;
 					}
 
-					JLOG_VERBOSE("Registering STUN entry %d for relay request",
-					             agent->entries_count);
+					JLOG_VERBOSE("Registering STUN entry %d for relay request %s:%hu",
+					             agent->entries_count,turn_server->host,turn_server->port);
 					agent_stun_entry_t *entry = agent->entries + agent->entries_count;
 					entry->type = AGENT_STUN_ENTRY_TYPE_RELAY;
 					entry->state = AGENT_STUN_ENTRY_STATE_PENDING;
@@ -456,7 +492,7 @@ int agent_resolve_servers(juice_agent_t *agent) {
 					juice_random(entry->transaction_id, STUN_TRANSACTION_ID_SIZE);
 					entry->transaction_id_expired = false;
 					++agent->entries_count;
-
+                    JLOG_DEBUG("agent_resolve_servers: 1: agent_arm_transmission %s",turn_server->host);
 					agent_arm_transmission(agent, entry, STUN_PACING_TIME * i);
 
 					++count;
@@ -505,6 +541,7 @@ int agent_resolve_servers(juice_agent_t *agent) {
 				entry->transaction_id_expired = false;
 				++agent->entries_count;
 
+				log_pair("agent_resolve_servers 2: agent_arm_transmission", entry->pair);
 				agent_arm_transmission(agent, entry, STUN_PACING_TIME * i);
 			}
 		} else {
@@ -700,6 +737,7 @@ int agent_send(juice_agent_t *agent, const char *data, size_t size, int ds) {
 
 	if (selected_entry->relay_entry) {
 		// The datagram should be sent through the relay, use a channel to minimize overhead
+		JLOG_DEBUG("agent_send relay agent");
 		conn_lock(agent); // We have to lock
 		int ret = agent_channel_send(agent, selected_entry->relay_entry, &selected_entry->record,
 		                             data, size, ds);
@@ -785,10 +823,10 @@ juice_state_t agent_get_state(juice_agent_t *agent) {
 
 int agent_get_selected_candidate_pair(juice_agent_t *agent, ice_candidate_t *local,
                                       ice_candidate_t *remote) {
-	conn_lock(agent);
+	//conn_lock(agent);
 	ice_candidate_pair_t *pair = agent->selected_pair;
 	if (!pair) {
-		conn_unlock(agent);
+	//	conn_unlock(agent);
 		return -1;
 	}
 
@@ -797,7 +835,7 @@ int agent_get_selected_candidate_pair(juice_agent_t *agent, ice_candidate_t *loc
 	if (remote)
 		*remote = *pair->remote;
 
-	conn_unlock(agent);
+	//conn_unlock(agent);
 	return 0;
 }
 
@@ -907,6 +945,7 @@ int agent_conn_tcp_state(juice_agent_t *agent, const addr_record_t *dst, tcp_sta
 			entry->pair->tcp_state = state;
 			switch (state) {
 			case TCP_STATE_CONNECTED:
+                log_pair("agent_conn_tcp_state agent_arm_transmission",entry->pair);
 				agent_arm_transmission(agent, entry, 0); // transmit now
 				break;
 			case TCP_STATE_DISCONNECTED:
@@ -930,9 +969,11 @@ int agent_conn_tcp_state(juice_agent_t *agent, const addr_record_t *dst, tcp_sta
 static bool pair_good_enough( struct ice_candidate_pair *pair) {
     return pair->local->type!=ICE_CANDIDATE_TYPE_RELAYED && pair->remote->type!=ICE_CANDIDATE_TYPE_RELAYED; 
     }
-int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
-	JLOG_VERBOSE("Bookkeeping...");
 
+
+int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
+
+    JLOG_VERBOSE("Bookkeeping... agent=%p",agent);
 	timestamp_t now = current_timestamp();
 	*next_timestamp = now + 6000000;
 
@@ -1014,7 +1055,7 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 
 			default:
 				if (entry->pair) {
-					JLOG_DEBUG("Candidate pair check failed");
+					log_pair("Candidate pair check failed",entry->pair);
 					entry->pair->state = ICE_CANDIDATE_PAIR_STATE_FAILED;
 				}
 				break;
@@ -1077,7 +1118,8 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 			}
 
 			if (ret < 0) {
-				JLOG_WARN("Sending keepalive failed");
+//				JLOG_WARN("Sending keepalive failed");
+				log_pair("Sending keepalive failed",entry->pair);
 				agent_arm_transmission(agent, entry, STUN_KEEPALIVE_PERIOD);
 				continue;
 			}
@@ -1093,6 +1135,7 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 	int pending_count = 0;
 	ice_candidate_pair_t *nominated_pair = NULL;
 	ice_candidate_pair_t *selected_pair = NULL;
+    ice_candidate_pair_t *lowestpair=NULL;
 	for (int i = 0; i < agent->candidate_pairs_count; ++i) {
 		ice_candidate_pair_t *pair = agent->ordered_pairs[i];
 		if (pair->nominated) {
@@ -1101,25 +1144,86 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 			// controlled agent accepts multiple nominations requests, the agents MUST produce the
 			// selected pairs and use the pairs with the highest priority.
 
-			if (!nominated_pair||pair->priority>nominated_pair->priority) {
-				 nominated_pair = pair;
-				 selected_pair = pair;
-				 }
-		} else if (pair->state == ICE_CANDIDATE_PAIR_STATE_SUCCEEDED) {
-			if (!selected_pair||pair->priority>selected_pair->priority) 
+//			if (!nominated_pair||pair->priority>nominated_pair->priority)  //ordered_pairs
+			if (!nominated_pair) {
+
+#ifndef NOLOG
+                  const char *lname;
+                  const char *lservice;
+                  if(pair->local) {   
+                      lname=pair->local->hostname;
+                      lservice=pair->local->service;
+                      }
+                   else {
+                      lname=lservice=NULL;
+                      }
+                  const char *rname;
+                  const char *rservice;
+                  if(pair->remote) {   
+                      rname=pair->remote->hostname;
+                      rservice=pair->remote->service;
+                      }
+                   else {
+                      rname=rservice=NULL;
+                      }
+				  JLOG_DEBUG("Bookkeeping %d: selected_pair (nominated) local=%s:%s remote=%s:%s priority=%lu",i,lname?lname:"",lservice?lservice:"",rname?rname:"",rservice?rservice:"",pair->priority);
+                                  #endif
+				nominated_pair = pair;
 				selected_pair = pair;
+			}
+         else {
+            log_pair("Bookkeeping pair already nominated %s",pair);
+            }
+        } else if (pair->state == ICE_CANDIDATE_PAIR_STATE_SUCCEEDED) {
+            if(!nominated_pair) {
+             //   if(!selected_pair||pair->priority>selected_pair->priority)  //ordered_pairs
+                if(!selected_pair) {
+#ifndef NOLOG
+                  const char *lname;
+                  const char *lservice;
+                  if(pair->local) {   
+                      lname=pair->local->hostname;
+                      lservice=pair->local->service;
+                      }
+                   else {
+                      lname=lservice=NULL;
+                      }
+                  const char *rname;
+                  const char *rservice;
+                  if(pair->remote) {   
+                      rname=pair->remote->hostname;
+                      rservice=pair->remote->service;
+                      }
+                   else {
+                      rname=rservice=NULL;
+                      }
+				   JLOG_DEBUG("Bookkeeping %d: selected_pair local=%s:%s remote=%s:%s priority=%lu",i,lname?lname:"",lservice?lservice:"",rname?rname:"",rservice?rservice:"",pair->priority);
+#endif
+                    selected_pair = pair;
+                    }
+                }
+           else {
+				log_pair("Bookkeeping: keeping SUCCEEDED pair",pair);
+             }
 		} else if (pair->state == ICE_CANDIDATE_PAIR_STATE_PENDING) {
 			if (agent->mode == AGENT_MODE_CONTROLLING && selected_pair) {
 				// A higher-priority pair will be used, we can stop checking.
 				// Entries will be synchronized after the current loop.
-				JLOG_VERBOSE("Cancelling check for lower-priority pair");
+				log_pair("Bookkeeping: Cancelling check for lower-priority pair",pair);
 				pair->state = ICE_CANDIDATE_PAIR_STATE_FROZEN;
 			} else {
-				++pending_count;
+                //if(!selected_pair||pair_good_enough(pair)) 
+                        {
+                            log_pair("Bookkeeping still pending",pair);
+                            if(!lowestpair)
+                                lowestpair=pair;
+                            ++pending_count;
+                            }
 			}
 		}
 	}
-
+    
+    JLOG_VERBOSE("Bookkeeping  pending_count %d",pending_count);
 	if (agent->mode == AGENT_MODE_CONTROLLING && nominated_pair) {
 		// RFC 8445 8.1.1. Nominating Pairs:
 		// Once the controlling agent has successfully nominated a candidate pair, the agent MUST
@@ -1128,7 +1232,7 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 			ice_candidate_pair_t *pair = agent->ordered_pairs[i];
 			if (pair != nominated_pair && pair->state == ICE_CANDIDATE_PAIR_STATE_PENDING) {
 				// Entries will be synchronized after the current loop.
-				JLOG_VERBOSE("Cancelling check for non-nominated pair");
+				log_pair("Cancelling check for non-nominated pair",pair);
 				pair->state = ICE_CANDIDATE_PAIR_STATE_FROZEN;
 			}
 		}
@@ -1148,7 +1252,10 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 	}
 
 	if (nominated_pair && nominated_pair->state == ICE_CANDIDATE_PAIR_STATE_FAILED) {
-		JLOG_WARN("Lost connectivity");
+	   if(juice_log_is_enabled(JUICE_LOG_LEVEL_DEBUG))
+            log_pair("Lost connectivity",nominated_pair);
+       else
+            JLOG_WARN("Lost connectivity");
 		agent_change_state(agent, JUICE_STATE_FAILED);
 		atomic_store(&agent->selected_entry, NULL); // disallow sending
 		return 0;
@@ -1157,14 +1264,12 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 	if (selected_pair) {
 		// Change selected entry if this is a new selected pair
 		if (agent->selected_pair != selected_pair) {
-			JLOG_DEBUG(selected_pair->nominated ? "New selected and nominated pair"
-			                                    : "New selected pair");
+			log_pair(selected_pair->nominated ? "New selected and nominated pair" : "New selected pair",selected_pair);
 			agent->selected_pair = selected_pair;
 
 			// Start nomination timer if controlling
-			if (agent->mode == AGENT_MODE_CONTROLLING)
-				agent->nomination_timestamp = now + NOMINATION_TIMEOUT;
-
+//			if (agent->mode == AGENT_MODE_CONTROLLING)
+            agent->nomination_timestamp = now + NOMINATION_TIMEOUT;
 			for (int i = 0; i < agent->entries_count; ++i) {
 				agent_stun_entry_t *entry = agent->entries + i;
 				if (entry->pair == selected_pair) {
@@ -1177,6 +1282,7 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 		if (nominated_pair) {
 			// Completed
 			// Do not allow direct transition from connecting to completed
+            log_pair("Bookkeeping nominated_pair", nominated_pair);
 			if (agent->state == JUICE_STATE_CONNECTING)
 				agent_change_state(agent, JUICE_STATE_CONNECTED);
 
@@ -1217,32 +1323,63 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 			}
 
 		} else {
-			// Connected
-			agent_change_state(agent, JUICE_STATE_CONNECTED);
+#ifndef NOLOG
+                  const char *lname;
+                  const char *lservice;
+                  if(selected_pair->local) {   
+                      lname=selected_pair->local->hostname;
+                      lservice=selected_pair->local->service;
+                      }
+                   else {
+                      lname=lservice=NULL;
+                      }
+                  const char *rname;
+                  const char *rservice;
+                  if(selected_pair->remote) {   
+                      rname=selected_pair->remote->hostname;
+                      rservice=selected_pair->remote->service;
+                      }
+                   else {
+                      rname=rservice=NULL;
+                      }
+                JLOG_DEBUG("Bookkeeping selected_pair not yet nominated %s local=%s:%s remote=%s:%s pending_count=%d priority selected=%lu lowest=%lu",
+agent->mode == AGENT_MODE_CONTROLLING ?"Controlling":"Controlled",
+                lname?lname:"",lservice?lservice:"",rname?rname:"",rservice?rservice:"",pending_count,selected_pair->priority,lowestpair?lowestpair->priority:-1);
+#endif
+            {
+            if (pending_count == 0||!lowestpair||lowestpair->priority<=selected_pair->priority||
+                (agent->nomination_timestamp && now >= agent->nomination_timestamp&&pair_good_enough(selected_pair))) {
+			   // Connected
 
-			if (agent->mode == AGENT_MODE_CONTROLLING && !selected_pair->nomination_requested) {
-				if (pending_count == 0 ||
-				    (agent->nomination_timestamp && now >= agent->nomination_timestamp&&pair_good_enough(selected_pair))) {
-					// Nominate selected
-					JLOG_DEBUG("Requesting pair nomination (controlling)");
-					selected_pair->nomination_requested = true;
-					for (int i = 0; i < agent->entries_count; ++i) {
-						agent_stun_entry_t *entry = agent->entries + i;
-						if (entry->pair && entry->pair == selected_pair) {
-							entry->state =
-							    AGENT_STUN_ENTRY_STATE_PENDING;      // we don't want keepalives
-							entry->transaction_id_expired = true;    // this is a new request
-							agent_arm_transmission(agent, entry, 0); // transmit now
-							break;
-						}
-					}
-				} else if (agent->nomination_timestamp &&
-				           *next_timestamp > agent->nomination_timestamp) {
-					*next_timestamp = agent->nomination_timestamp;
-				}
-			}
+                JLOG_DEBUG("Bookkeeping CONNECTED %s local=%s:%s remote=%s:%s ", agent->mode == AGENT_MODE_CONTROLLING ?"Controlling":"Controlled", lname?lname:"",lservice?lservice:"",rname?rname:"",rservice?rservice:"");
+                agent_change_state(agent, JUICE_STATE_CONNECTED);
+                if (agent->mode == AGENT_MODE_CONTROLLING && !selected_pair->nomination_requested) {
+                        // Nominate selected
+
+                        JLOG_DEBUG("Requesting pair nomination (controlling) local=%s:%s remote=%s:%s priority=%lu",lname?lname:"",lservice?lservice:"",rname?rname:"",rservice?rservice:"",selected_pair->priority);
+
+                        selected_pair->nomination_requested = true;
+                        for (int i = 0; i < agent->entries_count; ++i) {
+                            agent_stun_entry_t *entry = agent->entries + i;
+                            if (entry->pair && entry->pair == selected_pair) {
+                                entry->state =
+                                    AGENT_STUN_ENTRY_STATE_PENDING;      // we don't want keepalives
+                                entry->transaction_id_expired = true;    // this is a new request
+                                log_pair("Bookkeeping agent_arm_transmission",entry->pair);
+                                agent_arm_transmission(agent, entry, 0); // transmit now
+                                break;
+                            }
+                        }
+                    } 			
+                }
+                else if (agent->nomination_timestamp &&
+                                               *next_timestamp > agent->nomination_timestamp) {
+                                        *next_timestamp = agent->nomination_timestamp;
+                                        JLOG_DEBUG("Bookkeeping nomination_timestamp=%lu over %d\n",agent->nomination_timestamp,agent->nomination_timestamp-now);
+                                    }
+
 		}
-
+      }
 	} else if (pending_count == 0 && agent->pac_timestamp) {
 		// RFC 8863: While the timer is still running, the ICE agent MUST NOT update a checklist
 		// state from Running to Failed, even if there are no pairs left in the checklist to check.
@@ -1253,23 +1390,32 @@ int agent_bookkeeping(juice_agent_t *agent, timestamp_t *next_timestamp) {
 			return 0;
 		} else if (*next_timestamp > agent->pac_timestamp) {
 			*next_timestamp = agent->pac_timestamp;
+                        JLOG_DEBUG("Bookkeeping pac_timestamp=%lu over %d\n",agent->pac_timestamp,agent->pac_timestamp-now);
 		}
 	}
 
 	for (int i = 0; i < agent->entries_count; ++i) {
 		agent_stun_entry_t *entry = agent->entries + i;
-		if (entry->next_transmission && *next_timestamp > entry->next_transmission)
+		if (entry->next_transmission && *next_timestamp > entry->next_transmission) {
 			*next_timestamp = entry->next_transmission;
+                        JLOG_DEBUG("Bookkeeping entry->next_transmission=%lu over %d\n",*next_timestamp,*next_timestamp-now);
+                        }
 
 #if JUICE_DISABLE_CONSENT_FRESHNESS
 		// No expiration
 #else
 		if (entry->state == AGENT_STUN_ENTRY_STATE_SUCCEEDED_KEEPALIVE && entry->pair &&
-		    *next_timestamp > entry->pair->consent_expiry)
+		    *next_timestamp > entry->pair->consent_expiry) {
 			*next_timestamp = selected_pair->consent_expiry;
+                        JLOG_DEBUG("Bookkeeping selected_pair->consent_expiry=%lu over %d\n",*next_timestamp,*next_timestamp-now);
+                        }
 #endif
 	}
-
+    int timediff=( *next_timestamp-now);
+   JLOG_VERBOSE("end Bookkeeping... agent=%p next_timestamp=%lu fromnow=%d",agent, *next_timestamp,timediff);
+    if(timediff<100) {
+         *next_timestamp=now+100;
+        }
 	return 0;
 }
 
@@ -1521,10 +1667,11 @@ int agent_process_stun_binding(juice_agent_t *agent, const stun_message_t *msg,
 			// this pair produced a successful response and generated a valid pair. The agent sets
 			// the nominated flag value of the valid pair to true.
 			if (pair->state == ICE_CANDIDATE_PAIR_STATE_SUCCEEDED) {
-				JLOG_DEBUG("Got a nominated pair (controlled)");
+                                log_pair("Got a nominated pair (controlled)", pair);
+
 				pair->nominated = true;
 			} else if (!pair->nomination_requested) {
-				JLOG_DEBUG("Pair nomination requested (controlled)");
+				log_pair("Pair nomination requested (controlled)",pair);
 				pair->nomination_requested = true;
 			}
 		}
@@ -1540,7 +1687,7 @@ int agent_process_stun_binding(juice_agent_t *agent, const stun_message_t *msg,
 		// of the pair. [...] If the state of that pair is Waiting, Frozen, or Failed, the agent
 		// MUST [...] trigger a new connectivity check of the pair.
 		if (pair->state != ICE_CANDIDATE_PAIR_STATE_SUCCEEDED && *agent->remote.ice_ufrag != '\0') {
-			JLOG_DEBUG("Triggered pair check");
+			log_pair("Triggered pair check",pair);
 			pair->state = ICE_CANDIDATE_PAIR_STATE_PENDING;
 			entry->state = AGENT_STUN_ENTRY_STATE_PENDING;
 			agent_arm_transmission(agent, entry, STUN_PACING_TIME);
@@ -1548,8 +1695,9 @@ int agent_process_stun_binding(juice_agent_t *agent, const stun_message_t *msg,
 		break;
 	}
 	case STUN_CLASS_RESP_SUCCESS: {
-		JLOG_DEBUG("Received STUN Binding success response from %s",
+		JLOG_DEBUG("Received STUN Binding success response from %s  ",
 		           entry->type == AGENT_STUN_ENTRY_TYPE_CHECK ? "peer" : "server");
+
 
 		if (entry->type == AGENT_STUN_ENTRY_TYPE_SERVER)
 			JLOG_INFO("STUN server binding successful");
@@ -1595,15 +1743,15 @@ int agent_process_stun_binding(juice_agent_t *agent, const stun_message_t *msg,
 				// the Binding request and response are symmetric. [...] If the addresses are not
 				// symmetric, the agent MUST set the candidate pair state to Failed.
 				if (!addr_record_is_equal(src, &entry->record, true)) {
-					JLOG_DEBUG(
-					    "Candidate pair check failed (non-symmetric source address in response)");
+					log_pair(
+					    "Candidate pair check failed (non-symmetric source address in response)",entry->pair);
 					entry->state = AGENT_STUN_ENTRY_STATE_FAILED;
 					entry->next_transmission = 0;
 					pair->state = ICE_CANDIDATE_PAIR_STATE_FAILED;
 					break;
 				}
 
-				JLOG_DEBUG("Candidate pair check succeeded");
+				log_pair("Candidate pair check succeeded",entry->pair);
 				pair->state = ICE_CANDIDATE_PAIR_STATE_SUCCEEDED;
 			}
 
@@ -1618,8 +1766,28 @@ int agent_process_stun_binding(juice_agent_t *agent, const stun_message_t *msg,
 			// [...] once the check is sent and if it generates a successful response, and
 			// generates a valid pair, the agent sets the nominated flag of the pair to true.
 			if (pair->nomination_requested) {
-				JLOG_DEBUG("Got a nominated pair (%s)",
-				           agent->mode == AGENT_MODE_CONTROLLING ? "controlling" : "controlled");
+#ifndef NOLOG
+                  const char *lname;
+                  const char *lservice;
+                  if(pair->local) {   
+                      lname=pair->local->hostname;
+                      lservice=pair->local->service;
+                      }
+                   else {
+                      lname=lservice=NULL;
+                      }
+                  const char *rname;
+                  const char *rservice;
+                  if(pair->remote) {   
+                      rname=pair->remote->hostname;
+                      rservice=pair->remote->service;
+                      }
+                   else {
+                      rname=rservice=NULL;
+                      }
+				JLOG_DEBUG("Got a nominated pair (%s) local=%s:%s remote=%s:%s priority=%lu",
+				           agent->mode == AGENT_MODE_CONTROLLING ? "controlling" : "controlled",lname?lname:"",lservice?lservice:"",rname?rname:"",rservice?rservice:"",pair->priority);
+#endif
 				pair->nominated = true;
 			}
 		} else if (entry->type == AGENT_STUN_ENTRY_TYPE_SERVER) {
@@ -1658,6 +1826,7 @@ int agent_process_stun_binding(juice_agent_t *agent, const stun_message_t *msg,
 
 					if (entry->state != AGENT_STUN_ENTRY_STATE_IDLE) { // Check might not be started
 						entry->state = AGENT_STUN_ENTRY_STATE_PENDING;
+			            log_pair("Triggered pair check",entry->pair);
 						agent_arm_transmission(agent, entry, 0);
 					}
 				} else {
@@ -1894,16 +2063,20 @@ int agent_process_turn_allocate(juice_agent_t *agent, const stun_message_t *msg,
 	}
 	case STUN_CLASS_RESP_ERROR: {
 		if (msg->error_code == 401) { // Unauthorized
-			JLOG_DEBUG("Got TURN %s Unauthorized response",
-			           msg->msg_method == STUN_METHOD_ALLOCATE ? "Allocate" : "Refresh");
+#ifndef NOLOG
+			char relayed_str[ADDR_MAX_STRING_LEN];
+            addr_record_to_string(&entry->record, relayed_str, ADDR_MAX_STRING_LEN);
+			JLOG_DEBUG("Got TURN %s Unauthorized response %s",
+			           msg->msg_method == STUN_METHOD_ALLOCATE ? "Allocate" : "Refresh", relayed_str);
+#endif
 			if (*entry->turn->credentials.realm != '\0') {
-				JLOG_ERROR("TURN authentication failed");
+				JLOG_ERROR("TURN authentication failed %s",relayed_str);
 				entry->state = AGENT_STUN_ENTRY_STATE_FAILED;
 				agent_update_gathering_done(agent);
 				return -1;
 			}
 			if (*msg->credentials.realm == '\0' || *msg->credentials.nonce == '\0') {
-				JLOG_ERROR("Expected realm and nonce in TURN error response");
+				JLOG_ERROR("Expected realm and nonce in TURN error response %s",relayed_str);
 				entry->state = AGENT_STUN_ENTRY_STATE_FAILED;
 				agent_update_gathering_done(agent);
 				return -1;
@@ -1912,6 +2085,7 @@ int agent_process_turn_allocate(juice_agent_t *agent, const stun_message_t *msg,
 			stun_process_credentials(&msg->credentials, &entry->turn->credentials);
 
 			// Resend request when possible
+            JLOG_DEBUG("Unauthorized agent_arm_transmission %s",relayed_str);
 			agent_arm_transmission(agent, entry, 0);
 
 		} else if (msg->error_code == 438) { // Stale Nonce
@@ -1927,6 +2101,7 @@ int agent_process_turn_allocate(juice_agent_t *agent, const stun_message_t *msg,
 			stun_process_credentials(&msg->credentials, &entry->turn->credentials);
 
 			// Resend request when possible
+            log_pair("after stun_process_credentials agent_arm_transmission",entry->pair);
 			agent_arm_transmission(agent, entry, 0);
 
 		} else if (msg->msg_method == STUN_METHOD_ALLOCATE &&
@@ -1962,6 +2137,7 @@ int agent_process_turn_allocate(juice_agent_t *agent, const stun_message_t *msg,
 			// Change record and resend request when possible
 			++entry->turn_redirections;
 			entry->record = msg->alternate_server;
+            log_pair("after msg->alternate_server agent_arm_transmission",entry->pair);
 			agent_arm_transmission(agent, entry, 0);
 
 		} else {
@@ -2330,37 +2506,41 @@ int agent_add_local_relayed_candidate(juice_agent_t *agent, const addr_record_t 
 
 int agent_add_local_reflexive_candidate(juice_agent_t *agent, ice_candidate_type_t type,
                                         const addr_record_t *record) {
+#ifndef NOLOG
+    char hostname[ADDR_MAX_STRING_LEN];
+    addr_record_to_string(record, hostname, ADDR_MAX_STRING_LEN);
+#endif
 	if (type != ICE_CANDIDATE_TYPE_SERVER_REFLEXIVE && type != ICE_CANDIDATE_TYPE_PEER_REFLEXIVE) {
-		JLOG_ERROR("Invalid type for local reflexive candidate");
+		JLOG_ERROR("Invalid type for local reflexive candidate %s",hostname);
 		return -1;
 	}
 	int family = record->addr.ss_family;
 	if (ice_find_candidate_from_addr(&agent->local, record,
 	                                 family == AF_INET6 ? ICE_CANDIDATE_TYPE_UNKNOWN : type)) {
-		JLOG_VERBOSE("A local candidate exists for the mapped address");
+		JLOG_VERBOSE("A local candidate exists for the mapped address %s",hostname);
 		return 0;
 	}
 	ice_candidate_t candidate;
 	if (ice_create_local_candidate(type, 1, agent->local.candidates_count, record, &candidate,
 	                               ICE_CANDIDATE_TRANSPORT_UDP)) {
-		JLOG_ERROR("Failed to create reflexive candidate");
+		JLOG_ERROR("Failed to create reflexive candidate %s",hostname);
 		return -1;
 	}
 	if (candidate.type == ICE_CANDIDATE_TYPE_PEER_REFLEXIVE &&
 	    ice_candidates_count(&agent->local, ICE_CANDIDATE_TYPE_PEER_REFLEXIVE) >=
 	        MAX_PEER_REFLEXIVE_CANDIDATES_COUNT) {
 		JLOG_INFO(
-		    "Local description has the maximum number of peer reflexive candidates, ignoring");
+		    "Local description has the maximum number of peer reflexive candidates, ignoring %s",hostname);
 		return 0;
 	}
 	if (ice_add_candidate(&candidate, &agent->local)) {
-		JLOG_ERROR("Failed to add candidate to local description");
+		JLOG_ERROR("Failed to add candidate to local description %s",hostname);
 		return -1;
 	}
 
 	char buffer[BUFFER_SIZE];
 	if (ice_generate_candidate_sdp(&candidate, buffer, BUFFER_SIZE) < 0) {
-		JLOG_ERROR("Failed to generate SDP for local candidate");
+		JLOG_ERROR("Failed to generate SDP for local candidate %s",hostname);
 		return -1;
 	}
 	JLOG_DEBUG("Gathered reflexive candidate: %s", buffer);
@@ -2373,32 +2553,36 @@ int agent_add_local_reflexive_candidate(juice_agent_t *agent, ice_candidate_type
 
 int agent_add_remote_reflexive_candidate(juice_agent_t *agent, ice_candidate_type_t type,
                                          uint32_t priority, const addr_record_t *record) {
+#ifndef NOLOG
+    char hostname[ADDR_MAX_STRING_LEN];
+    addr_record_to_string(record, hostname, ADDR_MAX_STRING_LEN);
+#endif
 	if (type != ICE_CANDIDATE_TYPE_PEER_REFLEXIVE) {
-		JLOG_ERROR("Invalid type for remote reflexive candidate");
+		JLOG_ERROR("Invalid type for remote reflexive candidate %s",hostname);
 		return -1;
 	}
 	if (ice_find_candidate_from_addr(&agent->remote, record, ICE_CANDIDATE_TYPE_UNKNOWN)) {
-		JLOG_VERBOSE("A remote candidate exists for the remote address");
+		JLOG_VERBOSE("A remote candidate exists for the remote address %s",hostname);
 		return 0;
 	}
 	ice_candidate_t candidate;
 	if (ice_create_local_candidate(type, 1, agent->local.candidates_count, record, &candidate,
 	                               ICE_CANDIDATE_TRANSPORT_UDP)) {
-		JLOG_ERROR("Failed to create reflexive candidate");
+		JLOG_ERROR("Failed to create reflexive candidate %s",hostname);
 		return -1;
 	}
 	if (ice_candidates_count(&agent->remote, ICE_CANDIDATE_TYPE_PEER_REFLEXIVE) >=
 	    MAX_PEER_REFLEXIVE_CANDIDATES_COUNT) {
 		JLOG_INFO(
-		    "Remote description has the maximum number of peer reflexive candidates, ignoring");
+		    "Remote description has the maximum number of peer reflexive candidates, ignoring %s",hostname);
 		return 0;
 	}
 	if (ice_add_candidate(&candidate, &agent->remote)) {
-		JLOG_ERROR("Failed to add candidate to remote description");
+		JLOG_ERROR("Failed to add candidate to remote description %s",hostname);
 		return -1;
 	}
 
-	JLOG_DEBUG("Obtained a new remote reflexive candidate, priority=%lu", (unsigned long)priority);
+	JLOG_DEBUG("Obtained a new remote reflexive candidate %s, priority=%lu", hostname,(unsigned long)priority);
 
 	ice_candidate_t *remote = agent->remote.candidates + agent->remote.candidates_count - 1;
 	remote->priority = priority;
@@ -2493,12 +2677,12 @@ int agent_add_candidate_pair(juice_agent_t *agent, ice_candidate_t *local, // lo
 		for (int i = 0; i < agent->candidate_pairs_count; ++i) {
 			ice_candidate_pair_t *ordered_pair = agent->ordered_pairs[i];
 			if (ordered_pair == pos) {
-				JLOG_VERBOSE("Candidate pair has priority");
+				log_pair("Candidate pair has priority",ordered_pair);
 				break;
 			}
 			if (ordered_pair->state == ICE_CANDIDATE_PAIR_STATE_SUCCEEDED) {
 				// We found a succeeded pair with higher priority, ignore this one
-				JLOG_VERBOSE("Candidate pair doesn't have priority, keeping it frozen");
+				log_pair("Candidate pair doesn't have priority, keeping it frozen",ordered_pair);
 				return 0;
 			}
 		}
@@ -2507,7 +2691,7 @@ int agent_add_candidate_pair(juice_agent_t *agent, ice_candidate_t *local, // lo
 	// There is only one component, therefore we can unfreeze if no pair is nominated
 	if (*agent->remote.ice_ufrag != '\0' &&
 	    (!agent->selected_pair || !agent->selected_pair->nominated)) {
-		JLOG_VERBOSE("Unfreezing the new candidate pair");
+		log_pair("Unfreezing the new candidate pair",pos);
 		agent_unfreeze_candidate_pair(agent, pos);
 	}
 
@@ -2541,6 +2725,7 @@ int agent_unfreeze_candidate_pair(juice_agent_t *agent, ice_candidate_pair_t *pa
 		if (entry->pair == pair) {
 			pair->state = ICE_CANDIDATE_PAIR_STATE_PENDING;
 			entry->state = AGENT_STUN_ENTRY_STATE_PENDING;
+            log_pair("agent_arm_transmission",pair);
 			agent_arm_transmission(agent, entry, 0); // transmit now
 			return 0;
 		}
@@ -2576,6 +2761,7 @@ void agent_arm_keepalive(juice_agent_t *agent, agent_stun_entry_t *entry) {
 	}
 
 	entry->transaction_id_expired = true;
+    log_pair( "agent_arm_keepalive agent_arm_transmission",entry->pair);
 	agent_arm_transmission(agent, entry, period);
 }
 

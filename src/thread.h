@@ -8,7 +8,7 @@
 
 #ifndef JUICE_THREAD_H
 #define JUICE_THREAD_H
-
+#include "log.h"
 #ifdef _WIN32
 
 #ifndef _WIN32_WINNT
@@ -85,20 +85,41 @@ typedef void *thread_return_t;
 #define MUTEX_PLAIN PTHREAD_MUTEX_NORMAL
 #define MUTEX_RECURSIVE PTHREAD_MUTEX_RECURSIVE
 
+
 static inline int mutex_init_impl(mutex_t *m, int flags) {
 	pthread_mutexattr_t mutexattr;
 	pthread_mutexattr_init(&mutexattr);
 	pthread_mutexattr_settype(&mutexattr, flags);
 	int ret = pthread_mutex_init(m, &mutexattr);
 	pthread_mutexattr_destroy(&mutexattr);
+    LOCKLOGGER("mutex_init_impl(%p,%d)=%d",m,flags,ret);
 	return ret;
 }
 
 #define mutex_init(m, flags) mutex_init_impl(m, flags)
-#define mutex_lock(m) pthread_mutex_lock(m)
+#ifdef LOGLOCKS
+static inline int mutex_lock(pthread_mutex_t *m){ 
+    LOCKLOGGER("pthread_mutex_lock(%p) start",m);
+    int res=pthread_mutex_lock(m);
+    LOCKLOGGER("pthread_mutex_lock(%p)=%d end",m,res);
+    return res;
+    }
+static inline int mutex_unlock(pthread_mutex_t *m){ 
+    LOCKLOGGER("pthread_mutex_unlock(%p) start",m);
+    int res=pthread_mutex_unlock(m);
+    LOCKLOGGER("pthread_mutex_unlock(%p)=%d end",m,res);
+    return res;
+    }
+static inline int mutex_destroy(pthread_mutex_t *m){ 
+    int res=pthread_mutex_destroy(m);
+    LOCKLOGGER("pthread_mutex_destroy(%p)=%d",m,res);
+    return res;
+    }
+#else
 #define mutex_unlock(m) (void)pthread_mutex_unlock(m)
 #define mutex_destroy(m) (void)pthread_mutex_destroy(m)
-
+#define mutex_lock(m) pthread_mutex_lock(m)
+#endif
 #define thread_init(t, func, arg) pthread_create(t, NULL, func, arg)
 #define thread_join(t, res) (void)pthread_join(t, res)
 

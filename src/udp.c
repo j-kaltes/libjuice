@@ -157,7 +157,9 @@ socket_t udp_create_socket(const udp_socket_config_t *config) {
 	}
 
 	const int families[2] = {AF_INET6, AF_INET}; // Prefer IPv6
+#ifndef NOLOG
 	const char *names[2] = {"IPv6", "IPv4"};
+#endif
 	for (int i = 0; i < 2; ++i) {
 		const struct addrinfo *ai = find_family(ai_list, families[i]);
 		if (!ai)

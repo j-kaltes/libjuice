@@ -127,7 +127,7 @@ static     int addstring(char *buf,int maxlen,const char *add,int len) {
         memcpy(buf,add,addlen);
         return addlen-1;
         };
-static int addtype(char *buf,int maxlen,enum ice_candidate_type t) {
+int addtype(char *buf,int maxlen,enum ice_candidate_type t) {
     switch(t) {
         case ICE_CANDIDATE_TYPE_HOST: {
             char type[]=" Host";
@@ -155,6 +155,7 @@ static int addtype(char *buf,int maxlen,enum ice_candidate_type t) {
             }
           };
     }
+
 JUICE_EXPORT int juice_get_selected_addresses_inc_type(juice_agent_t *agent, char *local, size_t local_size,
                                               char *remote, size_t remote_size) {
 	if (!agent || (!local && local_size) || (!remote && remote_size))
@@ -180,6 +181,7 @@ JUICE_EXPORT int juice_get_selected_addresses_inc_type(juice_agent_t *agent, cha
 
 	return JUICE_ERR_SUCCESS;
 }
+
 JUICE_EXPORT int juice_get_selected_addresses(juice_agent_t *agent, char *local, size_t local_size,
                                               char *remote, size_t remote_size) {
 	if (!agent || (!local && local_size) || (!remote && remote_size))

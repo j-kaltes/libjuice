@@ -52,6 +52,7 @@ int conn_thread_prepare(juice_agent_t *agent, struct pollfd *pfd, timestamp_t *n
 	pfd->events = POLLIN;
 
 	*next_timestamp = conn_impl->next_timestamp;
+    JLOG_VERBOSE("conn_thread_prepare agent=%p conn_impl=%p next_timestamp=%lu",agent,conn_impl,*next_timestamp );
 
 	mutex_unlock(&conn_impl->mutex);
 	return 1;
@@ -59,6 +60,8 @@ int conn_thread_prepare(juice_agent_t *agent, struct pollfd *pfd, timestamp_t *n
 
 int conn_thread_process(juice_agent_t *agent, struct pollfd *pfd) {
 	conn_impl_t *conn_impl = agent->conn_impl;
+    
+    JLOG_VERBOSE("conn_thread_process agent=%p conn_impl=%p",agent,conn_impl);
 	mutex_lock(&conn_impl->mutex);
 	if (conn_impl->stopped) {
 		mutex_unlock(&conn_impl->mutex);
@@ -129,6 +132,7 @@ int conn_thread_recv(socket_t sock, char *buffer, size_t size, addr_record_t *sr
 }
 
 int conn_thread_run(juice_agent_t *agent) {
+    JLOG_VERBOSE("conn_thread_run(%p)",agent);
 	struct pollfd pfd[1];
 	timestamp_t next_timestamp;
 	while (conn_thread_prepare(agent, pfd, &next_timestamp) > 0) {
@@ -136,7 +140,7 @@ int conn_thread_run(juice_agent_t *agent) {
 		if (timediff < 0)
 			timediff = 0;
 
-		JLOG_VERBOSE("Entering poll for %d ms", (int)timediff);
+		JLOG_VERBOSE("conn_thread_run: Entering poll for %d ms", (int)timediff);
 		int ret = poll(pfd, 1, (int)timediff);
 		JLOG_VERBOSE("Leaving poll");
 		if (ret < 0) {
@@ -226,7 +230,7 @@ int conn_thread_interrupt(juice_agent_t *agent) {
 	conn_impl->next_timestamp = current_timestamp();
 	mutex_unlock(&conn_impl->mutex);
 
-	JLOG_VERBOSE("Interrupting connection thread");
+	JLOG_VERBOSE("Interrupting connection thread next_timestamp=%lu",conn_impl->next_timestamp);
 
 	mutex_lock(&conn_impl->send_mutex);
 	char dummy = 0; // Some C libraries might error out on NULL pointers

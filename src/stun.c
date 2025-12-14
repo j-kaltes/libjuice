@@ -694,20 +694,24 @@ int stun_read_attr(const void *data, size_t size, stun_message_t *msg, uint8_t *
 		break;
 	}
 	case STUN_ATTR_UNKNOWN_ATTRIBUTES: {
+                #ifndef NOLOG
 		JLOG_VERBOSE("Reading STUN unknown attributes");
 		const uint16_t *attributes = (const uint16_t *)attr->value;
 		for (int i = 0; i < (int)ntohs(attr->length) / 2; ++i) {
 			stun_attr_type_t type = (stun_attr_type_t)ntohs(attributes[i]);
 			JLOG_INFO("Got unknown attribute response for attribute 0x%X", (unsigned int)type);
 		}
+                #endif
 		break;
 	}
 	case STUN_ATTR_USERNAME: {
+                #ifndef NOLOG
 		JLOG_VERBOSE("Reading username");
 		if (length + 1 > STUN_MAX_USERNAME_LEN) {
 			JLOG_WARN("STUN username attribute value too long, length=%zu", length);
 			return -1;
 		}
+                #endif
 		memcpy(msg->credentials.username, (const char *)attr->value, length);
 		msg->credentials.username[length] = '\0';
 		JLOG_VERBOSE("Got username: %s", msg->credentials.username);

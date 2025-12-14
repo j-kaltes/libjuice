@@ -162,6 +162,8 @@ int ice_parse_candidate_sdp(const char *line, ice_candidate_t *candidate) {
 	return ICE_PARSE_ERROR;
 }
 
+
+
 int ice_reset_local_description(ice_description_t *description) {
 	memset(description->candidates,'\0',ICE_MAX_CANDIDATES_COUNT*sizeof(description->candidates[0]));
 	description->ice_lite = false;
@@ -383,7 +385,11 @@ int ice_generate_candidate_sdp(const ice_candidate_t *candidate, char *buffer, s
 	                candidate->hostname, candidate->service, type, suffix ? " " : "",
 	                suffix ? suffix : "");
 }
-
+#ifdef NOLOG
+#define log_pair(...)
+#else
+void log_pair(const char *message, const struct ice_candidate_pair *pair);
+#endif
 int ice_create_candidate_pair(ice_candidate_t *local, ice_candidate_t *remote, bool is_controlling,
                               ice_candidate_pair_t *pair) { // local or remote might be NULL
 	if (local && remote && local->resolved.addr.ss_family != remote->resolved.addr.ss_family) {
@@ -395,6 +401,7 @@ int ice_create_candidate_pair(ice_candidate_t *local, ice_candidate_t *remote, b
 	pair->local = local;
 	pair->remote = remote;
 	pair->state = ICE_CANDIDATE_PAIR_STATE_FROZEN;
+    log_pair("Create pair",pair);
 	return ice_update_candidate_pair(pair, is_controlling);
 }
 

@@ -227,15 +227,19 @@ void conn_destroy(juice_agent_t *agent) {
 void conn_lock(juice_agent_t *agent) {
 	if (!agent->conn_impl)
 		return;
-
+        
+    LOCKLOGGER("conn_lock(%p) start",agent);
 	get_agent_mode_entry(agent)->lock_func(agent);
+    LOCKLOGGER("conn_lock(%p) end",agent);
 }
 
 void conn_unlock(juice_agent_t *agent) {
 	if (!agent->conn_impl)
 		return;
 
-	get_agent_mode_entry(agent)->unlock_func(agent);
+    LOCKLOGGER("conn_unlock(%p) start",agent);
+    get_agent_mode_entry(agent)->unlock_func(agent);
+    LOCKLOGGER("conn_unlock(%p) end",agent);
 }
 
 int conn_interrupt(juice_agent_t *agent) {
